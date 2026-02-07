@@ -1,18 +1,17 @@
 import streamlit as st
 import base64
+import json
 from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-REDIRECT_URI = "https://gmail-ai-agent.streamlit.app"
-
-st.set_page_config(page_title="Gmail AI Agent")
-st.title("📧 Gmail AI Agent")
+# ---------- LOAD GOOGLE CREDENTIALS ----------
+with open("credentials.json") as f:
+    creds_json = json.load(f)
 
 client_config = {
     "web": {
-        "client_id": st.secrets["google"]["client_id"],
-        "client_secret": st.secrets["google"]["client_secret"],
+        "client_id": creds_json["installed"]["client_id"],
+        "client_secret": creds_json["installed"]["client_secret"],
         "auth_uri": "https://accounts.google.com/o/oauth2/auth",
         "token_uri": "https://oauth2.googleapis.com/token",
         "redirect_uris": [
@@ -21,6 +20,12 @@ client_config = {
         ]
     }
 }
+
+SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+REDIRECT_URI = "https://gmail-ai-agent.streamlit.app"
+
+st.set_page_config(page_title="Gmail AI Agent")
+st.title("📧 Gmail AI Agent")
 
 # ---------- LOGIN ----------
 if "creds" not in st.session_state:
@@ -89,4 +94,5 @@ if st.button("Fetch Emails"):
 if st.button("Logout"):
     del st.session_state["creds"]
     st.rerun()
+
 
