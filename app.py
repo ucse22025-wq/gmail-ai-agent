@@ -4,17 +4,30 @@ from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-REDIRECT_URI = "http://localhost:8501"
+REDIRECT_URI = "https://gmail-ai-agent.streamlit.app"
 
 st.set_page_config(page_title="Gmail AI Agent")
 st.title("📧 Gmail AI Agent")
+
+client_config = {
+    "web": {
+        "client_id": st.secrets["google"]["client_id"],
+        "client_secret": st.secrets["google"]["client_secret"],
+        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+        "token_uri": "https://oauth2.googleapis.com/token",
+        "redirect_uris": [
+            "http://localhost:8501",
+            "https://gmail-ai-agent.streamlit.app"
+        ]
+    }
+}
 
 # ---------- LOGIN ----------
 if "creds" not in st.session_state:
 
     if "code" in st.query_params:
-        flow = Flow.from_client_secrets_file(
-            "credentials.json",
+        flow = Flow.from_client_config(
+            client_config,
             scopes=SCOPES,
             redirect_uri=REDIRECT_URI
         )
@@ -22,10 +35,9 @@ if "creds" not in st.session_state:
         st.session_state.creds = flow.credentials
         st.rerun()
 
-
     else:
-        flow = Flow.from_client_secrets_file(
-            "credentials.json",
+        flow = Flow.from_client_config(
+            client_config,
             scopes=SCOPES,
             redirect_uri=REDIRECT_URI
         )
@@ -56,7 +68,6 @@ def get_email_body(msg):
         return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8")
     return ""
 
-# ---------- YOUR AI LOGIC ----------
 def classify_email(text):
     if "invoice" in text.lower():
         return "Finance"
@@ -65,7 +76,6 @@ def classify_email(text):
     else:
         return "General"
 
-# ---------- UI ----------
 if st.button("Fetch Emails"):
     results = service.users().messages().list(userId="me", maxResults=5).execute()
     for m in results.get("messages", []):
@@ -78,4 +88,5 @@ if st.button("Fetch Emails"):
 
 if st.button("Logout"):
     del st.session_state["creds"]
-    st.experimental_rerun()
+    st.rerun()
+
