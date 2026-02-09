@@ -3,11 +3,19 @@ import base64
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
 from openai import OpenAI
+from urllib.parse import urlparse, parse_qs
 
+# ----------------------------
+# Configuration
+# ----------------------------
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+
+# OpenAI client from Streamlit Secrets
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
+# ----------------------------
 # Setup OAuth flow
+# ----------------------------
 def get_flow():
     return Flow.from_client_config(
         {
@@ -23,8 +31,11 @@ def get_flow():
         redirect_uri=st.secrets["REDIRECT_URI"]
     )
 
+# ----------------------------
 # Authenticate user
+# ----------------------------
 def gmail_auth():
+    # Already authenticated
     if "creds" in st.session_state:
         return st.session_state.creds
 
@@ -32,7 +43,9 @@ def gmail_auth():
     auth_url, _ = flow.authorization_url(prompt="consent")
     st.markdown(f"### 🔐 [Login with Gmail]({auth_url})")
 
-    code = st.experimental_get_query_params().get("code")
+    # Get OAuth code from URL
+    query_params = st.experimental_get_query_params()  # Works with latest Streamlit
+    code = query_params.get("code")
     if not code:
         st.stop()
 
@@ -41,12 +54,16 @@ def gmail_auth():
     st.session_state.creds = creds
     return creds
 
-# Get Gmail service
+# ----------------------------
+# Gmail service
+# ----------------------------
 def get_gmail_service():
     creds = gmail_auth()
     return build("gmail", "v1", credentials=creds)
 
+# ----------------------------
 # Fetch emails
+# ----------------------------
 def get_emails(service, max_results=5):
     results = service.users().messages().list(userId="me", maxResults=max_results).execute()
     messages = results.get("messages", [])
@@ -77,7 +94,9 @@ def get_emails(service, max_results=5):
         emails.append({"subject": subject, "sender": sender, "body": body[:2000]})
     return emails
 
+# ----------------------------
 # AI classify
+# ----------------------------
 def classify_email(text):
     response = client.chat.completions.create(
         model="gpt-4.1-mini",
@@ -89,7 +108,9 @@ def classify_email(text):
     )
     return response.choices[0].message.content.strip()
 
+# ----------------------------
 # Streamlit UI
+# ----------------------------
 st.set_page_config(page_title="Gmail AI Agent", layout="wide")
 st.title("📧 Gmail AI Agent")
 
@@ -103,6 +124,7 @@ if service:
         st.write(e["body"])
         if st.button(f"🤖 Classify {i}", key=i):
             st.success(classify_email(e["subject"] + "\n" + e["body"]))
+
 
 
 
