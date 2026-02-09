@@ -43,11 +43,15 @@ def gmail_auth():
     auth_url, _ = flow.authorization_url(prompt="consent")
     st.markdown(f"### 🔐 [Login with Gmail]({auth_url})")
 
-    # Get OAuth code from URL
-    query_params = st.experimental_get_query_params()  # Works with latest Streamlit
+    # ----------------------------
+    # Manual URL parsing for Streamlit 1.54+
+    # ----------------------------
+    url = st.experimental_get_url()
+    parsed_url = urlparse(url)
+    query_params = parse_qs(parsed_url.query)
     code = query_params.get("code")
     if not code:
-        st.stop()
+        st.stop()  # Wait until user logs in
 
     flow.fetch_token(code=code[0])
     creds = flow.credentials
