@@ -3,14 +3,13 @@ import base64
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
 from openai import OpenAI
-from urllib.parse import urlparse, parse_qs
 
 # ----------------------------
 # Configuration
 # ----------------------------
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
 
-# OpenAI client from Streamlit Secrets
+# OpenAI client using Streamlit secrets
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 # ----------------------------
@@ -43,18 +42,10 @@ def gmail_auth():
     st.markdown(f"### 🔐 [Login with Gmail]({auth_url})")
 
     # ----------------------------
-    # Manual URL parsing for Streamlit 1.54+
+    # Get OAuth code from query params
     # ----------------------------
-    try:
-        url = st.get_url()  # Streamlit 1.54+ provides this
-    except Exception:
-        st.warning("Please click the login link above to authorize Gmail access.")
-        st.stop()
-
-    parsed_url = urlparse(url)
-    query_params = parse_qs(parsed_url.query)
+    query_params = st.experimental_get_query_params()
     code = query_params.get("code")
-
     if not code:
         st.stop()  # Wait until user logs in
 
@@ -133,6 +124,7 @@ if service:
         st.write(e["body"])
         if st.button(f"🤖 Classify {i}", key=i):
             st.success(classify_email(e["subject"] + "\n" + e["body"]))
+
 
 
 
