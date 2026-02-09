@@ -1,98 +1,108 @@
 import streamlit as st
 import base64
-import json
-from google_auth_oauthlib.flow import Flow
 from googleapiclient.discovery import build
-
-# ---------- LOAD GOOGLE CREDENTIALS ----------
-with open("credentials.json") as f:
-    creds_json = json.load(f)
-
-client_config = {
-    "web": {
-        "client_id": creds_json["installed"]["client_id"],
-        "client_secret": creds_json["installed"]["client_secret"],
-        "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-        "token_uri": "https://oauth2.googleapis.com/token",
-        "redirect_uris": [
-            "http://localhost:8501",
-            "https://gmail-ai-agent.streamlit.app"
-        ]
-    }
-}
+from google_auth_oauthlib.flow import Flow
+from openai import OpenAI
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
-REDIRECT_URI = "https://gmail-ai-agent.streamlit.app"
+client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-st.set_page_config(page_title="Gmail AI Agent")
-st.title("📧 Gmail AI Agent")
+# Setup OAuth flow
+def get_flow():
+    return Flow.from_client_config(
+        {
+            "web": {
+                "client_id": st.secrets["GOOGLE_CLIENT_ID"],
+                "client_secret": st.secrets["GOOGLE_CLIENT_SECRET"],
+                "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                "token_uri": "https://oauth2.googleapis.com/token",
+                "redirect_uris": [st.secrets["REDIRECT_URI"]],
+            }
+        },
+        scopes=SCOPES,
+        redirect_uri=st.secrets["REDIRECT_URI"]
+    )
 
-# ---------- LOGIN ----------
-if "creds" not in st.session_state:
+# Authenticate user
+def gmail_auth():
+    if "creds" in st.session_state:
+        return st.session_state.creds
 
-    if "code" in st.query_params:
-        flow = Flow.from_client_config(
-            client_config,
-            scopes=SCOPES,
-            redirect_uri=REDIRECT_URI
-        )
-        flow.fetch_token(code=st.query_params["code"])
-        st.session_state.creds = flow.credentials
-        st.rerun()
+    flow = get_flow()
+    auth_url, _ = flow.authorization_url(prompt="consent")
+    st.markdown(f"### 🔐 [Login with Gmail]({auth_url})")
 
-    else:
-        flow = Flow.from_client_config(
-            client_config,
-            scopes=SCOPES,
-            redirect_uri=REDIRECT_URI
-        )
-        auth_url, _ = flow.authorization_url(prompt="consent")
-        st.link_button("🔐 Login with Google", auth_url)
+    code = st.experimental_get_query_params().get("code")
+    if not code:
         st.stop()
 
-# ---------- GMAIL ----------
-service = build("gmail", "v1", credentials=st.session_state.creds)
-st.success("✅ Logged in")
+    flow.fetch_token(code=code[0])
+    creds = flow.credentials
+    st.session_state.creds = creds
+    return creds
 
-def get_email_body(msg):
-    payload = msg["payload"]
+# Get Gmail service
+def get_gmail_service():
+    creds = gmail_auth()
+    return build("gmail", "v1", credentials=creds)
 
-    def walk(parts):
-        for part in parts:
-            if part["mimeType"] == "text/plain" and "data" in part["body"]:
-                return base64.urlsafe_b64decode(part["body"]["data"]).decode("utf-8")
-            if "parts" in part:
-                text = walk(part["parts"])
-                if text:
-                    return text
-        return ""
+# Fetch emails
+def get_emails(service, max_results=5):
+    results = service.users().messages().list(userId="me", maxResults=max_results).execute()
+    messages = results.get("messages", [])
 
-    if "parts" in payload:
-        return walk(payload["parts"])
-    elif "data" in payload["body"]:
-        return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8")
-    return ""
+    emails = []
+    for msg in messages:
+        txt = service.users().messages().get(userId="me", id=msg["id"], format="full").execute()
+        payload = txt["payload"]
+        headers = payload.get("headers", [])
 
+        subject = sender = "Unknown"
+        for h in headers:
+            if h["name"] == "Subject":
+                subject = h["value"]
+            if h["name"] == "From":
+                sender = h["value"]
+
+        body = ""
+        parts = payload.get("parts", [])
+        if parts:
+            for part in parts:
+                if part["mimeType"] == "text/plain":
+                    data = part["body"].get("data")
+                    if data:
+                        body = base64.urlsafe_b64decode(data).decode("utf-8")
+                        break
+
+        emails.append({"subject": subject, "sender": sender, "body": body[:2000]})
+    return emails
+
+# AI classify
 def classify_email(text):
-    if "invoice" in text.lower():
-        return "Finance"
-    elif "meeting" in text.lower():
-        return "Work"
-    else:
-        return "General"
+    response = client.chat.completions.create(
+        model="gpt-4.1-mini",
+        messages=[
+            {"role": "system", "content": "Classify this email into: Important, Work, Spam, Personal, Other"},
+            {"role": "user", "content": text}
+        ],
+        max_tokens=10
+    )
+    return response.choices[0].message.content.strip()
 
-if st.button("Fetch Emails"):
-    results = service.users().messages().list(userId="me", maxResults=5).execute()
-    for m in results.get("messages", []):
-        msg = service.users().messages().get(userId="me", id=m["id"], format="full").execute()
-        body = get_email_body(msg)
-        label = classify_email(body)
+# Streamlit UI
+st.set_page_config(page_title="Gmail AI Agent", layout="wide")
+st.title("📧 Gmail AI Agent")
 
-        with st.expander(f"{label}"):
-            st.write(body[:2000])
+service = get_gmail_service()
 
-if st.button("Logout"):
-    del st.session_state["creds"]
-    st.rerun()
+if service:
+    emails = get_emails(service, 5)
+    for i, e in enumerate(emails, 1):
+        st.subheader(f"{i}. {e['subject']}")
+        st.caption(e["sender"])
+        st.write(e["body"])
+        if st.button(f"🤖 Classify {i}", key=i):
+            st.success(classify_email(e["subject"] + "\n" + e["body"]))
+
 
 
