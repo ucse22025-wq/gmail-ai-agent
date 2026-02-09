@@ -35,7 +35,6 @@ def get_flow():
 # Authenticate user
 # ----------------------------
 def gmail_auth():
-    # Already authenticated
     if "creds" in st.session_state:
         return st.session_state.creds
 
@@ -46,10 +45,16 @@ def gmail_auth():
     # ----------------------------
     # Manual URL parsing for Streamlit 1.54+
     # ----------------------------
-    url = st.experimental_get_url()
+    try:
+        url = st.get_url()  # Streamlit 1.54+ provides this
+    except Exception:
+        st.warning("Please click the login link above to authorize Gmail access.")
+        st.stop()
+
     parsed_url = urlparse(url)
     query_params = parse_qs(parsed_url.query)
     code = query_params.get("code")
+
     if not code:
         st.stop()  # Wait until user logs in
 
